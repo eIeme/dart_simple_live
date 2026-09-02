@@ -46,15 +46,21 @@ jobs:
           sed -i -E 's#gradle-[0-9.]+-all\.zip#gradle-8.14.3-all.zip#' "$F"
           echo "--- 修改后 ---"; grep distributionUrl "$F"
 
-      # Flutter 3.47.2 要求 AGP >= 8.11.1，项目锁的是 8.9.1。
-      # 只提到最低满足版本，不追新，避免撞上 AGP 9 的 DSL 破坏性变更。
-      - name: 提升 AGP 版本
+      # Flutter 3.47.2 的构建依赖校验查三样：Gradle / AGP / Kotlin。
+      #   AGP    项目 8.9.1  < 最低 8.11.1
+      #   Kotlin 项目 2.1.0  < 最低 2.2.20
+      # 都只提到最低满足版本，不追新 —— AGP 9 会启用新 DSL，
+      # 与项目现有的 build.gradle.kts 写法不兼容。
+      - name: 提升 AGP 与 Kotlin 版本
         working-directory: simple_live_tv_app/android
         run: |
           set -e
-          echo "--- 修改前 ---"; grep -n 'com.android.application' settings.gradle.kts
+          echo "--- 修改前 ---"
+          grep -nE 'com\.android\.application|kotlin\.android' settings.gradle.kts
           sed -i -E 's#(id\("com\.android\.application"\) version ")[0-9.]+(")#\18.11.1\2#' settings.gradle.kts
-          echo "--- 修改后 ---"; grep -n 'com.android.application' settings.gradle.kts
+          sed -i -E 's#(id\("org\.jetbrains\.kotlin\.android"\) version ")[0-9.]+(")#\12.2.20\2#' settings.gradle.kts
+          echo "--- 修改后 ---"
+          grep -nE 'com\.android\.application|kotlin\.android' settings.gradle.kts
 
       # ------------------------------------------------------------------
       # 签名。项目的 build.gradle.kts 写死了 signingConfigs.getByName("release")，
