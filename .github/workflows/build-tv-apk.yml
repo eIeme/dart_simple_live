@@ -22,9 +22,11 @@ jobs:
       - name: 安装 Flutter
         uses: subosito/flutter-action@v2
         with:
-          # README 要求 3.38。若该精确版本不存在导致失败，
-          # 把下面这行删掉，只保留 channel: stable 重跑。
-          flutter-version: '3.38.0'
+          # README 写的是 3.38，但已过时：Flutter 3.38.0 捆绑的是
+          # beta 版 Dart 3.10.0-290.4.beta，按 semver 预发布版小于正式版，
+          # 不满足 simple_live_core 要求的 sdk >=3.10.0，pub 解析会失败。
+          # 3.47.2 是 pub 自己给出的建议版本。
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
 
