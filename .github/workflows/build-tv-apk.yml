@@ -35,6 +35,17 @@ jobs:
           flutter --version
           java -version
 
+      # Flutter 3.47.2 要求 Gradle >= 8.14.0，项目 wrapper 锁的是 8.12，
+      # 会在 assembleRelease 阶段直接失败。这里就地提版本，不改仓库源码。
+      - name: 提升 Gradle Wrapper 版本
+        working-directory: simple_live_tv_app/android
+        run: |
+          set -e
+          F=gradle/wrapper/gradle-wrapper.properties
+          echo "--- 修改前 ---"; grep distributionUrl "$F"
+          sed -i -E 's#gradle-[0-9.]+-all\.zip#gradle-8.14.3-all.zip#' "$F"
+          echo "--- 修改后 ---"; grep distributionUrl "$F"
+
       # ------------------------------------------------------------------
       # 签名。项目的 build.gradle.kts 写死了 signingConfigs.getByName("release")，
       # 并从 android/key.properties 读取，仓库里没有这个文件，所以必须现造一个。
