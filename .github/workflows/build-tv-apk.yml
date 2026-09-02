@@ -1,0 +1,102 @@
+name: Build Simple Live TV APK
+
+# 手动触发。到仓库的 Actions 页面点 "Run workflow" 即可。
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # README 要求 3.38。若该精确版本不存在导致失败，
+          # 把下面这行删掉，只保留 channel: stable 重跑。
+          flutter-version: '3.38.0'
+          channel: stable
+          cache: true
+
+      - name: 环境自检
+        run: |
+          flutter --version
+          java -version
+
+      # ------------------------------------------------------------------
+      # 签名。项目的 build.gradle.kts 写死了 signingConfigs.getByName("release")，
+      # 并从 android/key.properties 读取，仓库里没有这个文件，所以必须现造一个。
+      #
+      # 默认：每次构建生成一个全新的临时 keystore。
+      #   → 后果：每次编出来的 APK 签名都不同，升级时必须先卸载旧版再装新版。
+      #   → 对自用侧载来说完全够用。
+      #
+      # 想要签名固定（可覆盖安装升级）：在仓库
+      #   Settings → Secrets and variables → Actions
+      # 里加一个名为 KEYSTORE_B64 的 secret，值是你自己 keystore 的 base64。
+      # 配好后本步骤会自动改用它，不再重新生成。
+      # ------------------------------------------------------------------
+      - name: 准备签名配置
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASS || 'simplelive' }}
+          KEY_PASS: ${{ secrets.KEY_PASS || 'simplelive' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
+        run: |
+          set -e
+          KS="${GITHUB_WORKSPACE}/simple_live_tv_app/android/app/upload.jks"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$KS"
+            echo ">> 使用仓库 Secret 中的 keystore（签名固定，可覆盖升级）"
+          else
+            keytool -genkeypair -v \
+              -keystore "$KS" \
+              -storetype JKS \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias "$KEY_ALIAS" \
+              -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+              -dname "CN=SimpleLiveTV, OU=Personal, O=Personal, L=NA, ST=NA, C=CN"
+            echo ">> 已生成临时 keystore（本次构建专用，签名与上次不同）"
+          fi
+
+          # storeFile 用绝对路径，避免 file() 相对路径解析差异
+          cat > "${GITHUB_WORKSPACE}/simple_live_tv_app/android/key.properties" <<EOF
+          storePassword=$KS_PASS
+          keyPassword=$KEY_PASS
+          keyAlias=$KEY_ALIAS
+          storeFile=$KS
+          EOF
+
+          echo "--- key.properties（已隐去密码）---"
+          sed 's/\(Password\)=.*/\1=***/' "${GITHUB_WORKSPACE}/simple_live_tv_app/android/key.properties"
+
+      - name: 拉取依赖
+        working-directory: simple_live_tv_app
+        run: flutter pub get
+
+      # --split-per-abi 会同时产出三个架构的包，
+      # 这样你不必事先知道电视是 arm64 还是 arm32，装的时候挑一个就行。
+      - name: 编译 Release APK（三种架构）
+        working-directory: simple_live_tv_app
+        run: flutter build apk --release --split-per-abi
+
+      - name: 列出产物
+        run: ls -lh simple_live_tv_app/build/app/outputs/flutter-apk/
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: simple-live-tv-apk
+          path: simple_live_tv_app/build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+          if-no-files-found: error
